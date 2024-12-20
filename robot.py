@@ -3,21 +3,23 @@ from gymnasium import spaces
 import numpy as np 
 import math 
 import matplotlib.pyplot as plt
-
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3 import PPO   
 from stable_baselines3.common.evaluation import evaluate_policy
 from stable_baselines3.common.monitor import Monitor
-
+import pandas as pd
 
 
 class TwoD_Robot(gym.Env): 
     
     def __init__(self):
         # stuff for training 
-        self.max_episode_steps = 25000
-        self.current_step = 0 
-        self.dist_to_goal_array = []
+        self.max_episode_steps = 1000
+        self.goal_reward = 1000
+        self.current_step = 0
+        self.current_episode =  0    
+        self.episodic_rewards = 0 
+        self.summary = []
         # length of robot link    
         self.L1 = 42.5 
         self.L2 = 39.22 
@@ -33,14 +35,14 @@ class TwoD_Robot(gym.Env):
         self.goal = np.array([0,30,np.pi])
         
         # Action space: motorangles 
-        self.action_space = spaces.Box(low= -0.5, high = 0.5, shape = (3,))
+        self.action_space = spaces.Box(low= -1, high = 1, shape = (3,))
        
         # endeffektor pose, joint angles, goal, distance to goal space definition  
         self.observation_space = spaces.Dict(
             {
                 "pose": spaces.Box(
-                        low = np.array([-100,-100,-2*np.pi]),
-                        high =np.array([100,100,2*np.pi]), 
+                        low = np.array([-100,-100,-3*np.pi]),
+                        high =np.array([100,100,3*np.pi]), 
                         dtype = float
                     ), 
                 "motors": spaces.Box(
@@ -55,11 +57,25 @@ class TwoD_Robot(gym.Env):
                     ),
                 "distance": spaces.Box(
                         low = np.array([0,0]),
-                        high = np.array([200, 2*np.pi]),
+                        high = np.array([200, 3*np.pi]),
                         dtype = float
                     )    
             } 
         )
+
+        # Initialize plot
+        plt.ion()
+        self.fig, self.axes = plt.subplots(1, 1)
+        self.line1, = self.axes.plot([], [], '-o', label="Robot Joints")
+        self.goal_marker, = self.axes.plot(0, 0, 'x', markersize=8, color='r', label="Goal")   
+        self.axes.set_title("Robot Joint Positions")
+
+        
+        self.number_steps_episode = []
+        self.episode_array = []
+        self.fig2, self.ax2 = plt.subplots(1, 1)
+        self.line2, = self.ax2.plot([],'.')
+        self.ax2.set_title("steps per episodes")
 
 
     # function that returns ee_pose from given motorangles 
@@ -105,14 +121,18 @@ class TwoD_Robot(gym.Env):
         # reward for keeping away from smashing the motors
         r_edge = - self.theta[0]**2 - self.theta[1]**2 - self.theta[2]**2
         # reward if done 
-        r_done = 0 
+        r_goal= 0 
         if (self.dist_to_goal < 5):
-            r_done = 500
+            r_done = self.goal_reward - self.current_step/2
         
+        r_terminated = 0     
+        if (self.current_step == self.max_episode_steps-1):
+            r_terminated = -500
+   
         # print("r_edge:",r_edge)
         # print("r_d:", r_d)
         # print("r_done", r_done)
-        reward = r_d + r_a + r_done + r_edge           
+        reward = r_d + r_a + r_goal + r_edge + r_terminated         
         return reward        
 
     # set the robot to random state and defines new goal, returns new observation  and info(empty) 
@@ -120,11 +140,8 @@ class TwoD_Robot(gym.Env):
         #returns new random state and emptyinfo 
         # We need the following line to seed self.np_random
         super().reset(seed=seed)
-        
-
         #self.np_random, _ = gym.utils.seeding.np_random(seed)
-        self.theta = np.random.uniform(-np.pi, np.pi, size = 3)
-        
+        self.theta = np.array([0.0,0.0,0.0])#np.random.uniform(-np.pi, np.pi, size = 3)
         #set new goal 
         rad = np.sqrt(np.random.uniform(0,1))* 60
         angle = np.random.uniform(-np.pi,np.pi)
@@ -136,26 +153,39 @@ class TwoD_Robot(gym.Env):
         print("reset, goal: ", self.goal)
 
         #get observation and info 
+    
+
         observation = self._get_obs()
         info = self._get_info()
         return observation, info 
       
     def check_done (self):
         done = False
-        reason= '?'
+        reason= ''
+        self.episodic_rewards += self._get_reward()
+        
         if (self.dist_to_goal < 5):
             done = True
             reason = 'goal reached'
-            
+        
         if (self.current_step>= self.max_episode_steps): 
             done = True
-            self.current_step = 0 
+            self.current_step = -100 
             reason = 'max_episodes reached'
-        else: 
-            self.current_step += 1 
                    
         if done: 
-            print("done,", reason)
+            print("done epsiode:",self.current_episode)
+            print(reason, "steps needed",self.current_step)
+            self.number_steps_episode.append(self.current_step)
+            self.episode_array.append(self.current_episode)
+            self.current_step = 0 
+            self.current_episode +=1 
+            self.episodic_rewards = 0
+            self.summary.append([self.current_episode,self.current_step,self.episodic_rewards])
+            
+        else: 
+            self.current_step += 1    
+            
         return done 
         
     #returns observation, reward, done = bool, truncated = False, info = empty  
@@ -188,21 +218,24 @@ class TwoD_Robot(gym.Env):
         Ex3 = math.sin(angles[0]+angles[1]+angles[2]) * links[2] + Ex2 
 
         joints = np.array([[0,Ex1,Ex2,Ex3],[0,Ey1,Ey2,Ey3]])
-        self.dist_to_goal_array.append(self.dist_to_goal)
-        print("distance:", self.dist_to_goal)
-        #print("theta:", self.theta)
-
-        self.axes[0].plot(joints[0],joints[1], '-o')
-        self.axes[0].plot(goal[0],goal[1], 'x', markersize = 8, color = 'r' )
-        self.axes[0].set_title("Robot Joint Positions")
-        self.axes[1].plot(self.dist_to_goal_array)
-        self.axes[1].set_title("Distance to Goal Over Time")
+        #print("distance:", self.dist_to_goal)
+    
+        self.line1.set_data(joints[0],joints[1])
+        self.goal_marker.set_data([self.goal[0]], [self.goal[1]])
+       
+        # Adjust axes limits dynamicall
+        self.axes.set_xlim(-100, 100)
+        self.axes.set_ylim(-100, 100)
+        # Redraw the canvas
+        self.fig.canvas.draw()
         
-        self.axes[0].relim()
-        self.axes[0].autoscale_view()
-        self.axes[1].relim()
-        self.axes[1].autoscale_view()
-        self.fig.canvas.flush_events()          
+        if done:
+            self.line2.set_data(self.episode_array, self.number_steps_episode)
+            self.ax2.relim()
+            self.ax2.autoscale()
+            self.fig2.canvas.draw()   
+        
+        plt.pause(0.001)
     
     def close(self):
         # Close the plot
@@ -212,32 +245,30 @@ class TwoD_Robot(gym.Env):
 env = TwoD_Robot()
 # check if environmnet is working properly 
 check_env(env)
-
 env = Monitor(env,filename="monitor_logs/")
-
 
 # Initialize the PPO model
 model = PPO(policy = "MultiInputPolicy", env= env, ent_coef=0.01, verbose=1)                                 
 # Custom training loop with rendering
-total_timesteps = 10
-steps_per_render = 10  # Render every 100 steps
+total_timesteps = 10000
+
+
+steps_per_render = 100  # Render every 100 steps
 obs, info = env.reset()
 
 for step in range(total_timesteps):
-    action, _states = model.predict(obs, deterministic=True)
-    obs, rewards, done ,truncated, info = env.step(action)
+    action, _states = model.predict(obs, deterministic=False)
+    obs, reward, done ,truncated, info = env.step(action)
     
+    if done: 
+        obs,info = env.reset()
     plt.ion()
-    env.render()
     
+    if (total_timesteps%steps_per_render == 0) :
+        env.render()
     
-    
-    # # Render at specified intervals
-    # if step % steps_per_render == 0:
-    #     env.render()
-    # # Reset the environment if done
-    # if done:
-    #     obs, info = env.reset()
+data = env.summary     
+df = pd.DataFrame(data,columns = "episodes, reward, steps")     
 
-
+df.to_csv('data.csv', index=False)  # Set index=False to not write row numbers
 
