@@ -18,7 +18,8 @@ class TwoD_Robot(gym.Env):
         self.goal_reward = 1000
         self.current_step = 0
         self.current_episode =  0    
-        self.episodic_rewards = 0 
+        self.episodic_reward = 0
+        self.episodic_rewards = [] 
         self.summary = []
         # length of robot link    
         self.L1 = 42.5 
@@ -73,9 +74,11 @@ class TwoD_Robot(gym.Env):
         
         self.number_steps_episode = []
         self.episode_array = []
-        self.fig2, self.ax2 = plt.subplots(1, 1)
-        self.line2, = self.ax2.plot([],'.')
-        self.ax2.set_title("steps per episodes")
+        self.fig2, self.ax2 = plt.subplots(2, 1)
+        self.line2, = self.ax2[0].plot([],'.')
+        self.line2_2, = self.ax2[1].plot([],'.')
+        self.ax2[0].set_title("steps per episodes")
+        self.ax2[1].set_title("reward per episodes")
 
 
     # function that returns ee_pose from given motorangles 
@@ -115,15 +118,17 @@ class TwoD_Robot(gym.Env):
     #return reward    
     def _get_reward(self):
         # distance reward
-        r_d = 500/self.dist_to_goal 
+        r_d = - 0.1*self.dist_to_goal #max = 1
         r_a = -0.1* self.angle_distance / np.pi *0
         
         # reward for keeping away from smashing the motors
-        r_edge = - self.theta[0]**2 - self.theta[1]**2 - self.theta[2]**2
+        r_edge = - 0.01*(self.theta[0]**2 - self.theta[1]**2 - self.theta[2]**2) # max = 0.9
+
         # reward if done 
         r_goal= 0 
         if (self.dist_to_goal < 5):
-            r_done = self.goal_reward - self.current_step/2
+            r_goal = self.goal_reward - self.current_step/2
+        
         
         r_terminated = 0     
         if (self.current_step == self.max_episode_steps-1):
@@ -162,7 +167,7 @@ class TwoD_Robot(gym.Env):
     def check_done (self):
         done = False
         reason= ''
-        self.episodic_rewards += self._get_reward()
+        self.episodic_reward += self._get_reward()
         
         if (self.dist_to_goal < 5):
             done = True
@@ -174,14 +179,22 @@ class TwoD_Robot(gym.Env):
             reason = 'max_episodes reached'
                    
         if done: 
-            print("done epsiode:",self.current_episode)
-            print(reason, "steps needed",self.current_step)
+
+
             self.number_steps_episode.append(self.current_step)
             self.episode_array.append(self.current_episode)
+            self.episodic_rewards.append(self.episodic_reward)
+            
+            print("epsiode:",self.current_episode)
+            print(reason, ", number of steps: ",self.current_step)            
+            print("episodic rewards", self.episodic_reward)
+            
+            
             self.current_step = 0 
             self.current_episode +=1 
-            self.episodic_rewards = 0
-            self.summary.append([self.current_episode,self.current_step,self.episodic_rewards])
+
+            self.episodic_reward = 0
+ 
             
         else: 
             self.current_step += 1    
@@ -231,15 +244,19 @@ class TwoD_Robot(gym.Env):
         
         if done:
             self.line2.set_data(self.episode_array, self.number_steps_episode)
-            self.ax2.relim()
-            self.ax2.autoscale()
-            self.fig2.canvas.draw()   
-        
+            self.ax2[0].relim()
+            self.ax2[0].autoscale()
+
+            self.line2_2.set_data(self.episode_array,self.episodic_rewards)
+            self.ax2[1].relim()
+            self.ax2[1].autoscale_view(scalex= False, scaley= True)   
+            self.ax2[1].set_xlim(self.ax2[0].get_xlim())
+            
+            self.fig2.canvas.draw()       
         plt.pause(0.001)
     
     def close(self):
-        # Close the plot
-        plt.close(self.fig)   
+        plt.close()
 
                                                                                                                               
 env = TwoD_Robot()
@@ -259,12 +276,13 @@ obs, info = env.reset()
 for step in range(total_timesteps):
     action, _states = model.predict(obs, deterministic=False)
     obs, reward, done ,truncated, info = env.step(action)
-    
+    print ('stepreward',reward)
+
     if done: 
         obs,info = env.reset()
     plt.ion()
     
-    if (total_timesteps%steps_per_render == 0) :
+    if (total_timesteps%steps_per_render == 0) :          
         env.render()
     
 data = env.summary     
