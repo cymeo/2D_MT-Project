@@ -1,7 +1,6 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
-from sklearn.linear_model import LinearRegression
 from scipy.ndimage import uniform_filter1d
 
 def plot_monitor_data(file_path):
@@ -42,6 +41,7 @@ def plot_monitor_data(file_path):
     axs[1].set_xlabel('Epochs')
     axs[1].set_ylabel('Steps')
     axs[1].legend()
+
     axs[1].grid()
     
     # Adjust layout and show the plot
@@ -49,7 +49,7 @@ def plot_monitor_data(file_path):
     plt.show()
 
 # Example usage
-plot_monitor_data('monitor_logs/succ1.csv')
+plot_monitor_data('monitor_logs/env_00.monitor.csv')
 
 
 

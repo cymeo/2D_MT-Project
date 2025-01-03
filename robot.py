@@ -103,13 +103,13 @@ class TwoD_Robot(gym.Env):
     #return reward    
     def _get_reward(self):
         # distance reward
-        reward = -self.dist_to_goal/100
+        reward = -self.dist_to_goal/100 *5
         # reard for goal  
         if self.done: 
-            reward = 500
+            reward = 700
         #terminate after n steps                       
         if (self.current_step == self.max_episode_steps-1):
-            reward = -200
+            reward = -700
         return reward        
 
     # set the robot to random state and defines new goal, returns new observation  and info(empty) 
@@ -143,7 +143,7 @@ class TwoD_Robot(gym.Env):
         
         if self.done: 
                 self.current_episode +=1            
-                print(reason, self.current_episode, "steps: ", self.current_step)               
+                #print(reason, self.current_episode, "steps: ", self.current_step)               
                 self.current_step = 0 
                 
         return self.done 
@@ -219,10 +219,15 @@ env = Monitor(env, filename=f"monitor_logs/env_00")
 # Initialize the PPO model
 model = PPO(policy = "MultiInputPolicy", env= env, n_steps=2048)                                 
 # Custom training loop with renderin
-n_episodes = 1000
-max_steps = 100
+n_episodes = 1200
+max_steps = 180 # 00 is approximately the average steps for learing 
 model.learn(total_timesteps=n_episodes*max_steps)
 # Save the trained model
-model.save("ppo_twod_robot")
+model.save("ppo_twod_robot", include_env=False)
 
 
+import plot_results
+plot_results.plot_monitor_data('monitor_logs/env_00.monitor.csv')
+
+from test_model import test_model
+test_model(model)
